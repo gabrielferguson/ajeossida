@@ -169,6 +169,25 @@ def fix_process_enumerate_threads_crash(custom_dir):
                              '        continue;')
 
 
+def fix_android_linker_symbol_enumeration(custom_dir):
+    gumelfmodule_path = os.path.join(custom_dir, "subprojects/frida-gum/gum/gumelfmodule.c")
+    replace_strings_in_files(
+        gumelfmodule_path,
+        '    if (details.name != NULL)\n'
+        '      GUM_CHECK_STR_BOUNDS (details.name, "symbol name");\n'
+        '    else\n'
+        '      details.name = "";\n',
+        '    if (details.name != NULL)\n'
+        '    {\n'
+        '      if (details.type != GUM_ELF_SYMBOL_SECTION)\n'
+        '        GUM_CHECK_STR_BOUNDS (details.name, "symbol name");\n'
+        '    }\n'
+        '    else\n'
+        '    {\n'
+        '      details.name = "";\n'
+        '    }\n')
+
+
 def main():
     target_version = get_target_frida_version()
     custom_dir = os.path.join(os.getcwd(), CUSTOM_NAME)
@@ -186,6 +205,8 @@ def main():
     run_command("git checkout " + target_version, cwd=custom_dir)
     run_command("git submodule update --init --recursive --force", cwd=custom_dir)
     print(f"[*] Target Frida version: {target_version}")
+    print("\n[*] Patch gumelfmodule.c for Android linker symbol enumeration")
+    fix_android_linker_symbol_enumeration(custom_dir)
 
     ndk_version_path = check_ndk_version()
 
