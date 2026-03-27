@@ -19,6 +19,10 @@ GADGET_STEALTH_REPLACEMENTS = [
 # Temporarily fixing the issue 'Failed to reach single-threaded state', Process.enumerateThreads() crash
 TEMP = 0
 
+ANDROID_LINKER_FIX_MIN_VERSION = (17, 6, 0)
+ANDROID_LINKER_FIX_MAX_EXCLUSIVE = (17, 8, 3)
+NDK_R29_MIN_VERSION = (17, 9, 1)
+
 
 def run_command(command, cwd=None):
     try:
@@ -37,20 +41,47 @@ def git_clone_repo():
     run_command(f"git clone --recurse-submodules {repo_url} {destination_dir}")
 
 
-def check_ndk_version():
+def parse_version(version):
+    core = version.split("-", 1)[0]
+    parts = core.split(".")
+    numbers = []
+    for index in range(3):
+        token = parts[index] if index < len(parts) else "0"
+        digits = []
+        for ch in token:
+            if ch.isdigit():
+                digits.append(ch)
+            else:
+                break
+        numbers.append(int("".join(digits) or "0"))
+    return tuple(numbers)
+
+
+def should_fix_android_linker_symbol_enumeration(version):
+    parsed = parse_version(version)
+    return ANDROID_LINKER_FIX_MIN_VERSION <= parsed < ANDROID_LINKER_FIX_MAX_EXCLUSIVE
+
+
+def required_android_ndk_major(version):
+    parsed = parse_version(version)
+    return 29 if parsed >= NDK_R29_MIN_VERSION else 25
+
+
+def check_ndk_version(target_version):
     home_path = os.path.expanduser("~")
     ndk_base = os.path.join(home_path, "Library/Android/sdk/ndk")
+    required_major = required_android_ndk_major(target_version)
 
     ndk_versions = []
 
     for ndk_version in os.listdir(ndk_base):
         dir_path = os.path.join(ndk_base, ndk_version)
 
-        if os.path.isdir(dir_path) and ndk_version.startswith("25."):
+        if os.path.isdir(dir_path) and ndk_version.startswith(f"{required_major}."):
             ndk_versions.append(ndk_version)
 
     if not ndk_versions:
-        print("\n[!] Android NDK r25 is needed")
+        print(f"\n[!] Android NDK r{required_major} is needed")
         sys.exit(1)
 
     # Sort versions and pick the largest
@@ -205,10 +236,14 @@ def main():
     run_command("git checkout " + target_version, cwd=custom_dir)
     run_command("git submodule update --init --recursive --force", cwd=custom_dir)
     print(f"[*] Target Frida version: {target_version}")
-    print("\n[*] Patch gumelfmodule.c for Android linker symbol enumeration")
-    fix_android_linker_symbol_enumeration(custom_dir)
+    if should_fix_android_linker_symbol_enumeration(target_version):
+        print("\n[*] Patch gumelfmodule.c for Android linker symbol enumeration")
+        fix_android_linker_symbol_enumeration(custom_dir)
+    else:
+        print("\n[*] Skip gumelfmodule.c Android linker patch for this Frida version")
 
-    ndk_version_path = check_ndk_version()
+    print(f"[*] Required Android NDK: r{required_android_ndk_major(target_version)}")
+    ndk_version_path = check_ndk_version(target_version)
 
     architectures = ["android-arm64", "android-arm", "android-x86_64", "android-x86"]
     if TEMP == 1:
