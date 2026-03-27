@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       frida_version:
-        description: 'Frida 版本号 (例如 16.2.1，留空则默认最新版)'
+        description: 'Frida 版本号 (留空则默认 17.7.3)'
         required: false
         default: ''
   push:
