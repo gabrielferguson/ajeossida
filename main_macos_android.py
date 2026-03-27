@@ -5,6 +5,16 @@ import subprocess
 import sys
 
 CUSTOM_NAME = "ajeossida"
+DEFAULT_FRIDA_VERSION = "17.7.3"
+GADGET_STEALTH_REPLACEMENTS = [
+    (b"libajeossida-gadget-raw.so", b"libbindersvc-gadget-raw.so"),
+    (b"ajeossida-gadget-tcp-%u", b"bindersvc-gadget-tcp-%u"),
+    (b"ajeossida-js-loop", b"bindersvc-js-loop"),
+    (b"ajeossida-gadget-unix", b"bindersvc-gadget-unix"),
+    (b"ajeossida-gadget", b"bindersvc-gadget"),
+    (b"ajeossida", b"bindersvc"),
+    (b"gdbug", b"amain"),
+]
 
 # Temporarily fixing the issue 'Failed to reach single-threaded state', Process.enumerateThreads() crash
 TEMP = 0
@@ -118,6 +128,30 @@ def capitalize_first_lower_char(word):
     return word
 
 
+def get_target_frida_version():
+    return os.getenv("CUSTOM_VERSION") or DEFAULT_FRIDA_VERSION
+
+
+def apply_binary_replacements(file_path, replacements, label):
+    with open(file_path, 'rb+') as f:
+        content = f.read()
+
+        for old, new in replacements:
+            if len(new) > len(old):
+                raise ValueError(f"Replacement too long for {label}: {old!r} -> {new!r}")
+            count = content.count(old)
+            if count == 0:
+                continue
+            padded = new + (b'\x00' * (len(old) - len(new)))
+            print(f"[*] {label}: {old.decode('utf-8', 'replace')} -> "
+                  f"{new.decode('utf-8', 'replace')} ({count})")
+            content = content.replace(old, padded)
+
+        f.seek(0)
+        f.write(content)
+        f.truncate()
+
+
 def fix_failed_to_reach_single_threaded_state(custom_dir):
     old_cloak_vala_path = os.path.join(custom_dir, "subprojects/frida-core/lib/payload/cloak.vala")
     new_cloak_vala_path = os.path.join(os.getcwd(), "fix_failed_to_reach_single_threaded_state.txt")
@@ -136,6 +170,7 @@ def fix_process_enumerate_threads_crash(custom_dir):
 
 
 def main():
+    target_version = get_target_frida_version()
     custom_dir = os.path.join(os.getcwd(), CUSTOM_NAME)
     if os.path.exists(custom_dir):
         print(f"\n[*] Cleaning {custom_dir}...")
@@ -148,6 +183,9 @@ def main():
     os.mkdir(assets_dir)
 
     git_clone_repo()
+    run_command("git checkout " + target_version, cwd=custom_dir)
+    run_command("git submodule update --init --recursive --force", cwd=custom_dir)
+    print(f"[*] Target Frida version: {target_version}")
 
     ndk_version_path = check_ndk_version()
 
@@ -321,12 +359,13 @@ def main():
     pool_spawner = bytes.fromhex('70 6f 6f 6c 2d 73 70 61 77 6e 65 72 00')
     pool_spoiler = bytes.fromhex('70 6f 6f 6c 2d 73 70 6f 69 6c 65 72 00')
 
-    patch_list = [os.path.join(build_dir, f"subprojects/frida-core/server/{CUSTOM_NAME}-server") for build_dir in
-                  build_dirs] + \
-                 [os.path.join(build_dir, f"subprojects/frida-core/lib/agent/{CUSTOM_NAME}-agent.so") for build_dir in
-                  build_dirs] + \
-                 [os.path.join(build_dir, f"subprojects/frida-core/lib/gadget/{CUSTOM_NAME}-gadget.so") for build_dir in
-                  build_dirs]
+    server_files = [os.path.join(build_dir, f"subprojects/frida-core/server/{CUSTOM_NAME}-server")
+                    for build_dir in build_dirs]
+    agent_files = [os.path.join(build_dir, f"subprojects/frida-core/lib/agent/{CUSTOM_NAME}-agent.so")
+                   for build_dir in build_dirs]
+    gadget_files = [os.path.join(build_dir, f"subprojects/frida-core/lib/gadget/{CUSTOM_NAME}-gadget.so")
+                    for build_dir in build_dirs]
+    patch_list = server_files + agent_files + gadget_files
 
     for file_path in patch_list:
         # Open the binary file for reading and writing
@@ -341,6 +380,10 @@ def main():
             f.seek(0)
             f.write(patched_content)
             f.truncate()
+
+    for file_path in gadget_files:
+        print(f"\n[*] gadget stealth patch for {file_path}")
+        apply_binary_replacements(file_path, GADGET_STEALTH_REPLACEMENTS, "gadget stealth")
 
     # Get frida version
     frida_version_py = os.path.join(custom_dir, "releng/frida_version.py")
