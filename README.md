@@ -1,4 +1,8 @@
 # Ajeossida (아저씨다)
+
+> 16.5.9 的 frida-gum 还把 runtime/java.js 和 Frida._java 相关入口编进 gumjs runtime；17.9.1 里这些入口已经被移掉了，所以 Java === undefined
+> 17.8.3 > frida version >= 17.6.0 -> 安卓10异常 Unsupported Android linker 
+
 Frida with patches that definitively fix basic detection points on Android and iOS.<br> 
 Unfortunately, I discovered that the patches in several custom Frida builds for bypassing detections are incomplete and still detectable.<br>
 For example, `frida_agent_main` in memory and the `gum-js-loop` thread name.<br> 
